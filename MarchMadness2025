@@ -1,0 +1,88 @@
+pip install kagglehub pandas numpy xgboost lightgbm catboost scikit-learn tensorflow
+import kagglehub
+import pandas as pd
+import numpy as np
+import os
+import xgboost as xgb
+import lightgbm as lgb
+import catboost as cb
+import tensorflow as tf
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import log_loss, accuracy_score
+# Download the latest dataset version from Kaggle
+dataset_path = kagglehub.dataset_download("nishaanamin/march-madness-data")
+
+# Verify the dataset location
+print("Dataset downloaded to:", dataset_path)
+
+# List files in the dataset directory
+data_files = os.listdir(dataset_path)
+print("Files in dataset:", data_files)
+# Example: Load team statistics and tournament results
+teams_df = pd.read_csv(os.path.join(dataset_path, "Teams.csv"))
+tournament_results_df = pd.read_csv(os.path.join(dataset_path, "NCAATourneyCompactResults.csv"))
+
+# Display first few rows to understand the structure
+print(teams_df.head())
+print(tournament_results_df.head())
+def preprocess_data(df):
+    df['seed_diff'] = df['team_1_seed'] - df['team_2_seed']
+    df['offensive_eff_diff'] = df['team_1_off_eff'] - df['team_2_off_eff']
+    df['defensive_eff_diff'] = df['team_1_def_eff'] - df['team_2_def_eff']
+    df['rebounds_diff'] = df['team_1_rebounds'] - df['team_2_rebounds']
+    df['turnovers_diff'] = df['team_1_turnovers'] - df['team_2_turnovers']
+    
+    return df
+df = preprocess_data(tournament_results_df)
+features = ['seed_diff', 'offensive_eff_diff', 'defensive_eff_diff', 'rebounds_diff', 'turnovers_diff']
+X = df[features]
+y = df['team_1_wins']
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+xgb_model = xgb.XGBClassifier(n_estimators=500, learning_rate=0.05, max_depth=6)
+xgb_model.fit(X_train, y_train)
+
+lgb_model = lgb.LGBMClassifier(n_estimators=500, learning_rate=0.05, max_depth=6)
+lgb_model.fit(X_train, y_train)
+
+cat_model = cb.CatBoostClassifier(iterations=500, learning_rate=0.05, depth=6, verbose=False)
+cat_model.fit(X_train, y_train)
+
+rf_model = RandomForestClassifier(n_estimators=500, max_depth=6, random_state=42)
+rf_model.fit(X_train, y_train)
+
+log_model = LogisticRegression()
+log_model.fit(X_train, y_train)
+from sklearn.ensemble import StackingClassifier
+
+stacked_model = StackingClassifier(
+    estimators=[
+        ('xgb', xgb_model),
+        ('lgb', lgb_model),
+        ('cat', cat_model),
+        ('rf', rf_model)
+    ],
+    final_estimator=LogisticRegression()
+)
+
+stacked_model.fit(X_train, y_train)
+models = {
+    "XGBoost": xgb_model,
+    "LightGBM": lgb_model,
+    "CatBoost": cat_model,
+    "Random Forest": rf_model,
+    "Logistic Regression": log_model,
+    "Stacked Model": stacked_model
+}
+
+for name, model in models.items():
+    y_pred = model.predict(X_test)
+    y_pred_proba = model.predict_proba(X_test)[:, 1]
+    
+    acc = accuracy_score(y_test, y_pred)
+    logloss = log_loss(y_test, y_pred_proba)
+    
+    print(f"{name} - Accuracy: {acc:.4f}, Log Loss: {logloss:.4f}")
